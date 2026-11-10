@@ -1,0 +1,108 @@
+\documentclass[11pt,letterpaper]{article}
+\usepackage[margin=0.85in]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage{mathptmx,booktabs,hyperref}
+\hypersetup{colorlinks=true,urlcolor=black,citecolor=black}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{6pt}
+\title{\textbf{Comparative Evaluation of RowHammer Mitigations in Ramulator 2.1}\\[5pt]\large CSE 611 Computer Architecture Final Report Draft}
+\author{Jacob Nance \qquad Ty Polley \qquad Alwin Rajkumar}
+\date{}
+\begin{document}
+\maketitle
+\vspace{-0.3in}
+\begin{abstract}
+RowHammer arises when repeated DRAM row activations disturb nearby cells and can produce unintended bit flips~\cite{kim2014,revisiting2020}. This report compares Graphene, PARA, and BlockHammer in Ramulator 2.1. The team's midterm report describes two preliminary tests using an alternating-address hammering trace. At a modeled sixteen-activation flip threshold, PARA and Graphene+PARA recorded no flips, whereas the unprotected, Graphene, and BlockHammer profiles each recorded nine. In a separate command-count test, BlockHammer reduced ACT commands from 8,192 to 7,349 and recorded 312,314 throttle events, while PARA generated 1,664 victim-row-refresh commands. These results show different modeled protection and overhead behaviors. They do not establish physical bit-flip prevention or RISC-V-specific performance.
+\end{abstract}
+
+\section{Introduction}
+Modern DRAM stores data in dense rows. Repeatedly activating an aggressor row can accelerate charge loss in adjacent victim rows, potentially corrupting data without a direct write~\cite{kim2014}. RowHammer susceptibility varies by device, and lower disturbance thresholds make defenses more demanding~\cite{revisiting2020}. RISC-H demonstrated bit flips on a physical RISC-V platform, but its activation behavior depends on the processor and memory controller~\cite{risch2024}.
+
+The research question is: \emph{How do Graphene, PARA, and BlockHammer trade modeled RowHammer protection against refresh activity, throttling, and execution time?} Ramulator 2.1 supplies the DRAM simulation platform~\cite{ramulator21,ramulatorrepo}. The present data compare memory-system models. The supplied report does not identify a RISC-V-generated trace or a RISC-V processor model, so a RISC-V-specific conclusion remains future work.
+
+% The source PDF does not attribute individual contributions. Add a verified
+% contribution summary here before submission. A signed cover page is also required.
+
+\section{Experimental Method}
+The supplied midterm report states that the team configured Ramulator 2.1 with a DDR4-VRR model, an 8-Gb-class x8 organization, 2400R timing, one rank, FR-FCFS scheduling, all-bank refresh, an open-row policy, and RoBaRaCoCh address mapping. Alternating-address attack traces were adapted from repository examples. The reported frontend has one attacking core, a modeled 64-KB last-level cache, 16 MSHRs per core, no address translation, and a 2,000,000-cycle limit. Exact configurations and raw command traces were not attached to the source PDF; these details remain as reported rather than independently reproduced here.
+
+Five profiles were compared: no mitigation, Graphene, PARA, Graphene+PARA, and BlockHammer. Graphene used 64 table entries, an activation threshold of 64, and a 1,000,000-ns reset period. PARA used a probability parameter of 0.2 and random seed 142. BlockHammer used \texttt{bf\_ctr\_thresh=16} and \texttt{bf\_num\_rh=4096}. These settings describe stress-test simulations, not recommended real-hardware parameters.
+
+The first test assigned one vulnerable bit to each of nine victim rows and considered four modeled flip thresholds: 8, 16, 32, and 64 neighboring activations. Its flip counter reset after a victim-row refresh (VRR). A second test measured ACT, VRR, reads, attacker cycles, and BlockHammer throttle events. Some cycle counts differ between the tests; they are interpreted within each test, not combined into one speedup calculation. The report states that CommandCounter recorded ACT and VRR commands. It does not provide repeated random-seed runs, per-row activation histories, or exact input traces for independent review.
+
+\section{Graphene: Counter-Based Targeted Refresh}
+Graphene uses a compact frequent-item tracking algorithm to identify often-activated rows and trigger preventive refresh, avoiding a full counter for every DRAM row~\cite{graphene2020}. In the team's configuration, it had 64 tracking entries and a 64-activation threshold.
+
+In the modeled-flip test, Graphene recorded nine flips at thresholds 8 and 16, matching the unprotected profile. It recorded none at 32 or 64, where the baseline also recorded none. Thus this test does not demonstrate improved flip prevention for Graphene under these conditions. In the command-count test, Graphene produced 126 VRRs versus zero in the baseline, while ACT remained at 8,192. Attacker cycles increased from 471,640 to 515,426, about 9.3\%.
+
+The 64-activation tracking setting might be too high to intervene before the artificial 8- and 16-activation flip thresholds. The reported results do not isolate the triggering path, however. A threshold sweep with recorded tracking and refresh decisions is needed before judging the published design~\cite{graphene2020}.
+
+\section{PARA: Probabilistic Adjacent-Row Refresh}
+PARA probabilistically refreshes rows adjacent to an aggressor row. It avoids a dedicated per-row activation table, but protection and overhead depend on refresh probability and the assumed disturbance threshold~\cite{kim2014}. The team used probability 0.2 and seed 142. One seed is a reproducible example, not an estimate of expected behavior.
+
+PARA recorded nine modeled flips at threshold 8 and none at 16, 32, or 64. It was the only single defense in the first test that improved the sixteen-activation result relative to baseline. In the command-count test, PARA recorded 1,664 VRRs and 8,192 ACTs. Attacker cycles rose from 471,640 to 1,042,371, about 121.0\% above baseline. The high configured refresh probability is consistent with its large VRR count and time cost, although the table does not isolate every cause of the cycle increase.
+
+Graphene+PARA produced the same modeled-flip outcomes as PARA and 1,790 VRRs, 126 more than PARA alone. Its attacker cycles were 1,088,521, about 130.8\% above baseline in the second test. These observations are consistent with both plugins contributing work but do not prove a general additive cost or extra protection. A PARA probability sweep with multiple seeds should report variation as well as mean refresh and latency cost.
+
+\section{BlockHammer: Activation-Rate Throttling}
+BlockHammer tracks rapidly activated rows with counting Bloom filters and delays requests when continued activation would exceed its modeled safe rate. Its published design also addresses the impact of an attacker on benign co-runners~\cite{blockhammer2021}. The team used a dedicated BlockHammer controller with a Bloom-filter counter threshold of 16 and a modeled RowHammer parameter of 4,096.
+
+In the modeled-flip test, BlockHammer recorded nine flips at thresholds 8 and 16 and none at 32 or 64, matching the unprotected baseline. It did not show protection at the tested very-low thresholds. In the command-count test it produced zero VRRs, consistent with throttling rather than victim refresh. ACTs fell from 8,192 to 7,349 (10.3\% fewer), and the report recorded 312,314 throttle events. Reads fell from 8,199 to 7,356 while attacker cycles rose from 471,640 to 856,491 (81.6\% higher).
+
+Because fewer reads and ACTs completed, BlockHammer should be tested with both fixed-time and fixed-work comparisons. Throttle events need not represent distinct memory requests. These data support the narrower conclusion that the chosen configuration reduced completed attack traffic at a substantial time cost, not a universal safety guarantee.
+
+\section{Preliminary Results}
+\begin{table}[htbp]
+\centering\small
+\caption{Modeled flip counts in separate activation-threshold scenarios, transcribed from the supplied midterm PDF. These are not physical DRAM measurements.}
+\begin{tabular}{lrrrrr}
+\toprule
+Profile & Flips @8 & Flips @16 & Flips @32 & Flips @64 & Test 1 cycles \\
+\midrule
+No mitigation & 9 & 9 & 0 & 0 & 471,639 \\
+Graphene & 9 & 9 & 0 & 0 & 514,612 \\
+PARA & 9 & 0 & 0 & 0 & 1,042,370 \\
+Graphene+PARA & 9 & 0 & 0 & 0 & 1,088,584 \\
+BlockHammer & 9 & 9 & 0 & 0 & 538,333 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[htbp]
+\centering\small
+\caption{Command and timing statistics from the second test in the supplied midterm PDF. This test does not report flip outcomes.}
+\begin{tabular}{lrrrrr}
+\toprule
+Profile & ACT & VRR & Reads & Attacker cycles & Throttles \\
+\midrule
+No mitigation & 8,192 & 0 & 8,199 & 471,640 & 0 \\
+Graphene & 8,192 & 126 & 8,199 & 515,426 & 0 \\
+PARA & 8,192 & 1,664 & 8,199 & 1,042,371 & 0 \\
+Graphene+PARA & 8,192 & 1,790 & 8,199 & 1,088,521 & 0 \\
+BlockHammer & 7,349 & 0 & 7,356 & 856,491 & 312,314 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Interpretation and Limitations}
+The defenses occupy different parts of the design space. Graphene tracks frequent rows and refreshes targets; PARA uses probabilistic refresh without deterministic row tracking; BlockHammer limits activation throughput rather than issuing VRRs~\cite{graphene2020,kim2014,blockhammer2021}. Here PARA had the best modeled outcome at the sixteen-activation threshold but the highest VRR and cycle counts. Graphene had lower cycle overhead but did not improve modeled flip outcomes. BlockHammer reduced completed attack traffic and recorded many throttle events, yet its flip outcomes matched baseline at thresholds 8 and 16.
+
+Four limits matter. Thresholds of 8--64 activations are stress-test values, not measured DDR4 susceptibility~\cite{revisiting2020}. The supplied PDF lacks a trace-to-DRAM-row map and per-row activation timeline, so modeled flip behavior cannot be checked independently. One PARA seed cannot quantify probabilistic reliability. Finally, the report does not establish that the traces originated from RISC-V execution. RISC-H motivates a RISC-V target but cannot validate this configuration by itself~\cite{risch2024}.
+
+\section{Next Experiments}
+The next study should archive the exact Ramulator revision, configurations, traces, and scripts; sweep PARA seeds and Graphene and BlockHammer thresholds; compare fixed-time and fixed-work outcomes under attack and benign traffic; and compute ACT counts per bank and row within refresh windows. A comparison of normalized weighted speedup with Ramulator 2.0~\cite{ramulator20} requires multi-workload measurements not present in these one-attacker-core tables. A RISC-V claim requires documented RISC-V-generated traces or a verified RISC-V processor simulation path.
+
+\section{Conclusion}
+The reported experiments distinguish three defense behaviors: Graphene added a small number of targeted refreshes, PARA added many probabilistic refreshes, and BlockHammer throttled attack traffic without VRRs. The data show an overhead-versus-modeled-protection tradeoff, especially at the sixteen-activation setting. The tested thresholds, one PARA seed, differing test conditions, and missing RISC-V trace provenance limit broader conclusions.
+
+\begin{thebibliography}{8}
+\bibitem{ramulator20} H. Luo et al., Ramulator 2.0: A Modern, Modular, and Extensible DRAM Simulator, \emph{IEEE Computer Architecture Letters}, vol. 23, no. 1, 2024. \url{https://doi.org/10.1109/LCA.2023.3333759}.
+\bibitem{ramulator21} H. Luo et al., Ramulator 2.1: A Composable Memory System Simulator for Modern DRAM Systems, arXiv:2606.13844, 2026. \url{https://arxiv.org/abs/2606.13844}.
+\bibitem{kim2014} Y. Kim et al., Flipping Bits in Memory Without Accessing Them: An Experimental Study of DRAM Disturbance Errors, \emph{ISCA}, 2014. \url{https://www.istc-cc.cmu.edu/publications/papers/2014/kim-isca14.pdf}.
+\bibitem{graphene2020} Y. Park et al., Graphene: Strong yet Lightweight Row Hammer Protection, \emph{MICRO}, 2020. \url{https://www.microarch.org/micro53/papers/738300a001.pdf}.
+\bibitem{blockhammer2021} A. G. Yaglikci et al., BlockHammer: Preventing RowHammer at Low Cost by Blacklisting Rapidly-Accessed DRAM Rows, \emph{HPCA}, 2021. \url{https://ghose.cs.illinois.edu/papers/21hpca_blockhammer.pdf}.
+\bibitem{revisiting2020} J. S. Kim et al., Revisiting RowHammer: An Experimental Analysis of Modern DRAM Devices and Mitigation Techniques, arXiv:2005.13121, 2020. \url{https://arxiv.org/abs/2005.13121}.
+\bibitem{risch2024} M. Marazzi and K. Razavi, RISC-H: Rowhammer Attacks on RISC-V, \emph{DRAMSec}, 2024. \url{https://dramsec.ethz.ch/papers/RISC-H_dramsec24.pdf}.
+\bibitem{ramulatorrepo} CMU SAFARI, Ramulator 2.x source repository. \url{https://github.com/CMU-SAFARI/ramulator2}.
+\end{thebibliography}
+\end{document}
