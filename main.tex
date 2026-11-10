@@ -1,19 +1,28 @@
 \documentclass[11pt,letterpaper]{article}
-\usepackage[margin=0.85in]{geometry}
+\usepackage[margin=1in]{geometry}
 \usepackage[T1]{fontenc}
-\usepackage{mathptmx,booktabs,hyperref}
-\hypersetup{colorlinks=true,urlcolor=black,citecolor=black}
+\usepackage{helvet,booktabs,titlesec}
+\usepackage[table]{xcolor}
+\usepackage{hyperref}
+\renewcommand{\familydefault}{\sfdefault}
+\definecolor{reportblue}{HTML}{0C4564}
+\definecolor{tableblue}{HTML}{27465B}
+\definecolor{tablerow}{HTML}{EEF2F4}
+\hypersetup{colorlinks=true,urlcolor=reportblue,citecolor=reportblue}
+\setcounter{secnumdepth}{0}
+\titleformat{\section}{\normalfont\large\color{reportblue}}{}{0pt}{}
+\titlespacing*{\section}{0pt}{12pt}{5pt}
 \setlength{\parindent}{0pt}
-\setlength{\parskip}{6pt}
-\title{\textbf{Comparative Evaluation of RowHammer Mitigations in Ramulator 2.1}\\[5pt]\large CSE 611 Computer Architecture Final Report Draft}
-\author{Jacob Nance \qquad Ty Polley \qquad Alwin Rajkumar}
-\date{}
+\setlength{\parskip}{7pt}
 \begin{document}
-\maketitle
-\vspace{-0.3in}
-\begin{abstract}
-RowHammer arises when repeated DRAM row activations disturb nearby cells and can produce unintended bit flips~\cite{kim2014,revisiting2020}. This report compares Graphene, PARA, and BlockHammer in Ramulator 2.1. The team's midterm report describes two preliminary tests using an alternating-address hammering trace. At a modeled sixteen-activation flip threshold, PARA and Graphene+PARA recorded no flips, whereas the unprotected, Graphene, and BlockHammer profiles each recorded nine. In a separate command-count test, BlockHammer reduced ACT commands from 8,192 to 7,349 and recorded 312,314 throttle events, while PARA generated 1,664 victim-row-refresh commands. These results show different modeled protection and overhead behaviors. They do not establish physical bit-flip prevention or RISC-V-specific performance.
-\end{abstract}
+\begin{center}
+{\LARGE\color{reportblue} CSE 611 -- Computer Architecture Final Report\par}
+\vspace{9pt}
+Jacob Nance, Ty Polley, Alwin Rajkumar\par
+\vspace{9pt}
+RowHammer Mitigation / Ramulator 2.1\par
+\end{center}
+\vspace{3pt}
 
 \section{Introduction}
 Modern DRAM stores data in dense rows. Repeatedly activating an aggressor row can accelerate charge loss in adjacent victim rows, potentially corrupting data without a direct write~\cite{kim2014}. RowHammer susceptibility varies by device, and lower disturbance thresholds make defenses more demanding~\cite{revisiting2020}. RISC-H demonstrated bit flips on a physical RISC-V platform, but its activation behavior depends on the processor and memory controller~\cite{risch2024}.
@@ -55,9 +64,11 @@ Because fewer reads and ACTs completed, BlockHammer should be tested with both f
 \begin{table}[htbp]
 \centering\small
 \caption{Modeled flip counts in separate activation-threshold scenarios, transcribed from the supplied midterm PDF. These are not physical DRAM measurements.}
+\rowcolors{2}{tablerow}{white}
 \begin{tabular}{lrrrrr}
 \toprule
-Profile & Flips @8 & Flips @16 & Flips @32 & Flips @64 & Test 1 cycles \\
+\rowcolor{tableblue}
+\color{white}\bfseries Profile & \color{white}\bfseries Flips @8 & \color{white}\bfseries Flips @16 & \color{white}\bfseries Flips @32 & \color{white}\bfseries Flips @64 & \color{white}\bfseries Test 1 cycles \\
 \midrule
 No mitigation & 9 & 9 & 0 & 0 & 471,639 \\
 Graphene & 9 & 9 & 0 & 0 & 514,612 \\
@@ -71,9 +82,11 @@ BlockHammer & 9 & 9 & 0 & 0 & 538,333 \\
 \begin{table}[htbp]
 \centering\small
 \caption{Command and timing statistics from the second test in the supplied midterm PDF. This test does not report flip outcomes.}
+\rowcolors{2}{tablerow}{white}
 \begin{tabular}{lrrrrr}
 \toprule
-Profile & ACT & VRR & Reads & Attacker cycles & Throttles \\
+\rowcolor{tableblue}
+\color{white}\bfseries Profile & \color{white}\bfseries ACT & \color{white}\bfseries VRR & \color{white}\bfseries Reads & \color{white}\bfseries Attacker cycles & \color{white}\bfseries Throttles \\
 \midrule
 No mitigation & 8,192 & 0 & 8,199 & 471,640 & 0 \\
 Graphene & 8,192 & 126 & 8,199 & 515,426 & 0 \\
